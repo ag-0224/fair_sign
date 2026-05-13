@@ -11,8 +11,7 @@ import {
   FileText, 
   CheckCircle2, 
   AlertTriangle,
-  Loader2,
-  Paperclip
+  Loader2
 } from 'lucide-react';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import './index.css';
