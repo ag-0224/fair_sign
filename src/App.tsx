@@ -43,6 +43,7 @@ interface Message {
 type Tab = 'dashboard' | 'aftercare' | 'upload' | 'storage' | 'mypage';
 
 function App() {
+  const [view, setView] = useState<'landing' | 'analysis'>('landing');
   const [activeTab, setActiveTab] = useState<Tab>('upload');
   const [messages, setMessages] = useState<Message[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -55,19 +56,27 @@ function App() {
 
   // Scroll to bottom when messages change
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isAnalyzing]);
+    if (view === 'analysis') {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, isAnalyzing, view]);
 
   const startAnalysis = async (file: File) => {
+    if (isAnalyzing) return; // Prevent multiple uploads during analysis
+
     if (!API_KEY || API_KEY === 'YOUR_GEMINI_API_KEY_HERE') {
       setError("시스템 설정 오류: API 키가 설정되지 않았습니다.");
       return;
     }
 
+    // Switch to analysis view
+    setView('analysis');
+    setIsAnalyzing(true);
+    setError(null);
+
     // 1. Add User File Message
-    const userMessageId = Date.now().toString();
     const newUserMessage: Message = {
-      id: userMessageId,
+      id: Date.now().toString(),
       role: 'user',
       type: 'file',
       content: file.name
@@ -81,8 +90,11 @@ function App() {
     };
 
     setMessages(prev => [...prev, newUserMessage, userTextMessage]);
-    setIsAnalyzing(true);
-    setError(null);
+
+    // Reset file input value immediately so the same file can be selected again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
 
     try {
       const genAI = new GoogleGenerativeAI(API_KEY);
@@ -115,12 +127,10 @@ function App() {
       const response = await result.response;
       const text = response.text();
       
-      // Extract JSON from response
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const data: AnalysisData = JSON.parse(jsonMatch[0]);
         
-        // Add AI response messages
         setMessages(prev => [
           ...prev, 
           {
@@ -143,6 +153,17 @@ function App() {
       setError("분석 중 오류가 발생했습니다. 다시 시도해주세요.");
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const handleBack = () => {
+    setView('landing');
+    setMessages([]);
+    setIsAnalyzing(false);
+    setError(null);
+    // Reset file input so same file can be uploaded again
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -173,8 +194,8 @@ function App() {
     <div className="app-container">
       {/* Header */}
       <header className="main-header">
-        {messages.length > 0 ? (
-          <button className="icon-btn" onClick={() => setMessages([])}>
+        {view === 'analysis' ? (
+          <button className="icon-btn" onClick={handleBack}>
             <ArrowLeft size={24} />
           </button>
         ) : (
@@ -183,11 +204,9 @@ function App() {
           </button>
         )}
         
-        {messages.length > 0 && (
-          <div className="header-title">
-            {messages.find(m => m.type === 'file')?.content || "계약서 분석"}
-          </div>
-        )}
+        <div className="header-title">
+          {view === 'analysis' ? "계약서 분석" : "페어사인"}
+        </div>
 
         <button className="icon-btn">
           <Bell size={24} />
@@ -196,10 +215,7 @@ function App() {
 
       {/* Main Content Area */}
       <main className="chat-container">
-        <div className="chat-disclaimer">
-          AI는 실수를 할 수 있으며, 법률 전문가의 조언을 대체할 수 없습니다.
-        </div>
-        {messages.length === 0 ? (
+        {view === 'landing' ? (
           <div className="landing-view">
             <div className="upload-circle">
               <FileText size={48} color="var(--accent-cyan)" />
@@ -214,74 +230,82 @@ function App() {
             </div>
           </div>
         ) : (
-          messages.map((msg) => (
-            <div key={msg.id} className={`message ${msg.role}`}>
-              {msg.type === 'file' ? (
-                <div className="bubble" style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'white', color: 'black' }}>
-                  <div style={{ padding: '8px', background: '#f0f0f0', borderRadius: '8px' }}>
-                    <FileText size={20} />
+          <>
+            <div className="chat-disclaimer">
+              AI는 실수를 할 수 있으며, 법률 전문가의 조언을 대체할 수 없습니다.
+            </div>
+            {messages.map((msg) => (
+              <div key={msg.id} className={`message ${msg.role}`}>
+                {msg.type === 'file' ? (
+                  <div className="bubble" style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'white', color: 'black' }}>
+                    <div style={{ padding: '8px', background: '#f0f0f0', borderRadius: '8px' }}>
+                      <FileText size={20} />
+                    </div>
+                    <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{msg.content}</div>
                   </div>
-                  <div style={{ fontSize: '0.85rem', fontWeight: 500 }}>{msg.content}</div>
+                ) : msg.type === 'analysis' && msg.data ? (
+                  <div className="analysis-card">
+                    <div className="card-header">
+                      <span className={`risk-level ${getRiskLabel(msg.data.score).class}`}>
+                        {getRiskLabel(msg.data.score).label}
+                      </span>
+                      <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>스코어: {msg.data.score}점</span>
+                    </div>
+                    <div className="card-body">
+                      <div style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '10px' }}>핵심 요약</div>
+                      <ul className="card-summary-list">
+                        {msg.data.summary.map((s, i) => (
+                          <li key={i} className="card-summary-item">
+                            <CheckCircle2 size={16} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--accent-cyan)' }} />
+                            <span>{s}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bubble">{msg.content}</div>
+                )}
+              </div>
+            ))}
+            
+            {isAnalyzing && (
+              <div className="message ai">
+                <div className="bubble" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Loader2 size={18} className="animate-spin" />
+                  계약서를 읽고 있어요...
                 </div>
-              ) : msg.type === 'analysis' && msg.data ? (
-                <div className="analysis-card">
-                  <div className="card-header">
-                    <span className={`risk-level ${getRiskLabel(msg.data.score).class}`}>
-                      {getRiskLabel(msg.data.score).label}
-                    </span>
-                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>스코어: {msg.data.score}점</span>
-                  </div>
-                  <div className="card-body">
-                    <div style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: '10px' }}>핵심 요약</div>
-                    <ul className="card-summary-list">
-                      {msg.data.summary.map((s, i) => (
-                        <li key={i} className="card-summary-item">
-                          <CheckCircle2 size={16} style={{ flexShrink: 0, marginTop: '2px', color: 'var(--accent-cyan)' }} />
-                          <span>{s}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+              </div>
+            )}
+            
+            {error && (
+              <div className="message ai">
+                <div className="bubble" style={{ border: '1px solid var(--accent-danger)', color: 'var(--accent-danger)' }}>
+                  <AlertTriangle size={18} style={{ display: 'inline', marginRight: '8px' }} />
+                  {error}
                 </div>
-              ) : (
-                <div className="bubble">{msg.content}</div>
-              )}
-            </div>
-          ))
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </>
         )}
-        
-        {isAnalyzing && (
-          <div className="message ai">
-            <div className="bubble" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Loader2 size={18} className="animate-spin" />
-              계약서를 읽고 있어요...
-            </div>
-          </div>
-        )}
-        
-        {error && (
-          <div className="message ai">
-            <div className="bubble" style={{ border: '1px solid var(--accent-danger)', color: 'var(--accent-danger)' }}>
-              <AlertTriangle size={18} style={{ display: 'inline', marginRight: '8px' }} />
-              {error}
-            </div>
-          </div>
-        )}
-        
-        <div ref={chatEndRef} />
       </main>
 
-      {/* Action Area */}
-      <div className="bottom-actions">
+      {/* Action Area (Only visible in landing view, or modified for analysis view) */}
+      <div className={`bottom-actions ${isAnalyzing ? 'disabled' : ''}`}>
         <input 
           type="file" 
           ref={fileInputRef} 
           onChange={handleFileUpload} 
           style={{ display: 'none' }}
           accept="image/*,.pdf"
+          disabled={isAnalyzing}
         />
-        <div className="action-bar" onClick={() => fileInputRef.current?.click()}>
-          {messages.length === 0 ? "파일 업로드 / 사진 촬영 / TEXT 작성" : "다른 계약서 분석하기"}
+        <div 
+          className="action-bar" 
+          onClick={() => !isAnalyzing && fileInputRef.current?.click()}
+        >
+          {isAnalyzing ? "분석 중입니다..." : (view === 'landing' ? "파일 업로드 / 사진 촬영 / TEXT 작성" : "다른 계약서 분석하기")}
         </div>
       </div>
 
