@@ -196,6 +196,9 @@ function App() {
 
       {/* Main Content Area */}
       <main className="chat-container">
+        <div className="chat-disclaimer">
+          AI는 실수를 할 수 있으며, 법률 전문가의 조언을 대체할 수 없습니다.
+        </div>
         {messages.length === 0 ? (
           <div className="landing-view">
             <div className="upload-circle">
@@ -206,7 +209,7 @@ function App() {
               <p className="landing-subtitle">
                 PDF, 사진 촬영(OCR)<br />
                 텍스트 직접 입력 지원<br />
-                <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>무료 월 3회</span>
+                <span style={{ fontSize: '0.8rem', opacity: 0.6 }}>무료 3회</span>
               </p>
             </div>
           </div>
